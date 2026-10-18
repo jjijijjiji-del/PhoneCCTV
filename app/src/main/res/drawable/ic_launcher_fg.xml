@@ -1,11 +1,6 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <group android:rotation="32" android:pivotX="58" android:pivotY="48">
-        <path android:fillColor="#FFFFFF" android:pathData="M44,38h30a6,6 0,0 1,6,6v8a6,6 0,0 1,-6,6h-30a6,6 0,0 1,-6,-6v-8a6,6 0,0 1,6,-6z"/>
-        <path android:fillColor="#FFFFFF" android:pathData="M36,41h4a2,2 0,0 1,2,2v10a2,2 0,0 1,-2,2h-4a2,2 0,0 1,-2,-2v-10a2,2 0,0 1,2,-2z"/>
-    </group>
-    <path android:fillColor="#FFFFFF" android:pathData="M52,58 L59,62 L48,77 L36,77 L36,72 L45,72 Z"/>
-    <path android:fillColor="#FFFFFF" android:pathData="M32,64h2a2,2 0,0 1,2,2v14a2,2 0,0 1,-2,2h-2a2,2 0,0 1,-2,-2v-14a2,2 0,0 1,2,-2z"/>
-    <path android:fillColor="#E5484D" android:pathData="M76.5,30a3.5,3.5 0,1 1,7.0,0a3.5,3.5 0,1 1,-7.0,0z"/>
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="11" android:strokeLineCap="round" android:pathData="M67.08,40.92 A18.5,18.5 0 1 0 67.08,67.08"/>
+    <path android:fillColor="#E5484D" android:pathData="M67.5,54a4.5,4.5 0,1 1,9.0,0a4.5,4.5 0,1 1,-9.0,0z"/>
 </vector>
