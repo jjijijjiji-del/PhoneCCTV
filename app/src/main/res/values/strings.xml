@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">Claude TV</string>
-    <string name="sc_start">녹화 시작</string>
+    <string name="sc_back">후면 카메라로 녹화</string>
+    <string name="sc_front">전면 카메라로 녹화</string>
     <string name="sc_stop">녹화 멈추기</string>
 </resources>

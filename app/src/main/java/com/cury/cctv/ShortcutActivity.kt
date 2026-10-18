@@ -18,7 +18,8 @@ import androidx.core.content.ContextCompat
 class ShortcutActivity : Activity() {
 
     companion object {
-        const val ACTION_START = "com.cury.cctv.SHORTCUT_START"
+        const val ACTION_START_BACK = "com.cury.cctv.SHORTCUT_START_BACK"
+        const val ACTION_START_FRONT = "com.cury.cctv.SHORTCUT_START_FRONT"
         const val ACTION_STOP = "com.cury.cctv.SHORTCUT_STOP"
     }
 
@@ -28,7 +29,8 @@ class ShortcutActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) setShowWhenLocked(true)
 
         when (intent?.action) {
-            ACTION_START -> handleStart()
+            ACTION_START_BACK -> handleStart(back = true)
+            ACTION_START_FRONT -> handleStart(back = false)
             ACTION_STOP -> {
                 if (RecorderState.status.value.active) {
                     RecordService.stop(this)
@@ -40,7 +42,7 @@ class ShortcutActivity : Activity() {
         }
     }
 
-    private fun handleStart() {
+    private fun handleStart(back: Boolean) {
         if (RecorderState.status.value.active) {
             Toast.makeText(this, "이미 녹화 중이에요", Toast.LENGTH_SHORT).show()
             finish()
@@ -54,8 +56,9 @@ class ShortcutActivity : Activity() {
             finish()
             return
         }
+        Prefs.setCameraIdx(this, if (back) 0 else 1)
         RecordService.start(this, currentRotation())
-        Toast.makeText(this, "Claude TV 녹화를 시작해요", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, if (back) "후면 카메라로 녹화를 시작해요" else "전면 카메라로 녹화를 시작해요", Toast.LENGTH_SHORT).show()
         // 안드로이드 14+는 카메라 녹화가 '앱이 화면에 있을 때' 시작돼야 해서 잠깐 머물렀다 닫음
         Handler(Looper.getMainLooper()).postDelayed({ finish() }, 2000)
     }

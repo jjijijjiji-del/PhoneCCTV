@@ -1,13 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut
-        android:shortcutId="start_rec"
+        android:shortcutId="start_back"
         android:enabled="true"
-        android:icon="@drawable/ic_sc_record"
-        android:shortcutShortLabel="@string/sc_start"
-        android:shortcutLongLabel="@string/sc_start">
+        android:icon="@drawable/ic_sc_back"
+        android:shortcutShortLabel="@string/sc_back"
+        android:shortcutLongLabel="@string/sc_back">
         <intent
-            android:action="com.cury.cctv.SHORTCUT_START"
+            android:action="com.cury.cctv.SHORTCUT_START_BACK"
+            android:targetPackage="com.cury.cctv"
+            android:targetClass="com.cury.cctv.ShortcutActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="start_front"
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_front"
+        android:shortcutShortLabel="@string/sc_front"
+        android:shortcutLongLabel="@string/sc_front">
+        <intent
+            android:action="com.cury.cctv.SHORTCUT_START_FRONT"
             android:targetPackage="com.cury.cctv"
             android:targetClass="com.cury.cctv.ShortcutActivity" />
     </shortcut>

@@ -46,7 +46,8 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar">
             <intent-filter>
-                <action android:name="com.cury.cctv.SHORTCUT_START" />
+                <action android:name="com.cury.cctv.SHORTCUT_START_BACK" />
+                <action android:name="com.cury.cctv.SHORTCUT_START_FRONT" />
                 <action android:name="com.cury.cctv.SHORTCUT_STOP" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
