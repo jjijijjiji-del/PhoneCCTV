@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Claude TV</string>
+    <string name="sc_start">녹화 시작</string>
+    <string name="sc_stop">녹화 멈추기</string>
 </resources>

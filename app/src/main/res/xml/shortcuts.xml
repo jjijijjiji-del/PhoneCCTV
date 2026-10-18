@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="start_rec"
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_record"
+        android:shortcutShortLabel="@string/sc_start"
+        android:shortcutLongLabel="@string/sc_start">
+        <intent
+            android:action="com.cury.cctv.SHORTCUT_START"
+            android:targetPackage="com.cury.cctv"
+            android:targetClass="com.cury.cctv.ShortcutActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="stop_rec"
+        android:enabled="true"
+        android:icon="@drawable/ic_sc_stop"
+        android:shortcutShortLabel="@string/sc_stop"
+        android:shortcutLongLabel="@string/sc_stop">
+        <intent
+            android:action="com.cury.cctv.SHORTCUT_STOP"
+            android:targetPackage="com.cury.cctv"
+            android:targetClass="com.cury.cctv.ShortcutActivity" />
+    </shortcut>
+</shortcuts>
