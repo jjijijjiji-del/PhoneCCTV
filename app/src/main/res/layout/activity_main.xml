@@ -128,7 +128,7 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <TextView style="@style/Label" android:text="파일 나누는 간격" />
+            <TextView style="@style/Label" android:text="파일 나누는 크기 (이 용량이 차면 저장 후 새 파일)" />
             <Spinner android:id="@+id/spSegment" style="@style/Field" />
 
             <TextView style="@style/Label" android:text="화질" />
@@ -147,6 +147,21 @@
                 android:layout_marginTop="4dp"
                 android:textColor="@color/sub"
                 android:textSize="13sp" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/swFps"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="빠른 움직임 우선 (30fps 고정)"
+                android:textColor="@color/text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="켜면 어두울 때도 프레임이 떨어지지 않아 잔상이 적어요. 대신 밤엔 화면이 더 어두울 수 있어요."
+                android:textColor="@color/sub"
+                android:textSize="12sp" />
 
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/swAudio"

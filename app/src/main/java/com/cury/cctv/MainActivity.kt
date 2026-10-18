@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var spCamera: Spinner
     private lateinit var spMax: Spinner
     private lateinit var swAudio: MaterialSwitch
+    private lateinit var swFps: MaterialSwitch
 
     private val ticker = Handler(Looper.getMainLooper())
     private var wasActive = false
@@ -97,8 +98,9 @@ class MainActivity : AppCompatActivity() {
         spCamera = findViewById(R.id.spCamera)
         spMax = findViewById(R.id.spMax)
         swAudio = findViewById(R.id.swAudio)
+        swFps = findViewById(R.id.swFps)
 
-        setupSpinner(spSegment, Prefs.SEGMENT_LABELS, Prefs.segmentIdx(this)) { Prefs.setSegmentIdx(this, it) }
+        setupSpinner(spSegment, Prefs.SPLIT_LABELS, Prefs.splitIdx(this)) { Prefs.setSplitIdx(this, it) }
         setupSpinner(spQuality, Prefs.QUALITY_LABELS, Prefs.qualityIdx(this)) { Prefs.setQualityIdx(this, it) }
         setupSpinner(spCamera, Prefs.CAMERA_LABELS, Prefs.cameraIdx(this)) {
             val changed = it != Prefs.cameraIdx(this)
@@ -106,6 +108,8 @@ class MainActivity : AppCompatActivity() {
             if (changed) bindPreview()
         }
         setupSpinner(spMax, Prefs.MAX_LABELS, Prefs.maxIdx(this)) { Prefs.setMaxIdx(this, it) }
+        swFps.isChecked = Prefs.fixedFps(this)
+        swFps.setOnCheckedChangeListener { _, checked -> Prefs.setFixedFps(this, checked) }
         swAudio.isChecked = Prefs.audio(this)
         swAudio.setOnCheckedChangeListener { _, checked ->
             Prefs.setAudio(this, checked)
@@ -248,7 +252,7 @@ class MainActivity : AppCompatActivity() {
             status.text = if (s.recording) "● 녹화 중" else "● 준비 중"
             val total = if (s.sessionStartedAt > 0) fmt(now - s.sessionStartedAt) else "-"
             val seg = if (s.recording) fmt(now - s.segmentStartedAt) else "-"
-            val segLen = Prefs.SEGMENT_LABELS[Prefs.segmentIdx(this)]
+            val segLen = String.format(Locale.KOREA, "약 %.0f분", Prefs.minutesPerFile(this))
             val lines = mutableListOf(
                 "총 녹화 시간 $total",
                 "현재 파일 ${s.segments}번째 · $seg / $segLen",
@@ -264,11 +268,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderEstimate() {
-        val seg = Prefs.estimatedSegmentBytes(this) / (1024.0 * 1024.0)
+        val min = Prefs.minutesPerFile(this)
         val hours = Prefs.estimatedHours(this)
         val keep = if (hours == null) "폰 저장공간이 허락하는 만큼 보관"
         else String.format(Locale.KOREA, "최근 약 %.0f시간 분량 보관", hours)
-        estimate.text = String.format(Locale.KOREA, "파일 1개 약 %.0fMB · %s", seg, keep)
+        estimate.text = String.format(Locale.KOREA, "파일 1개 ≈ %.0f분 녹화 · %s", min, keep)
     }
 
     private suspend fun refreshStorage() {

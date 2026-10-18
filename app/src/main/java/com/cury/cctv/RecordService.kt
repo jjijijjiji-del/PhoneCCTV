@@ -18,6 +18,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Range
 import android.view.Surface
 import androidx.camera.core.CameraSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -77,7 +78,7 @@ class RecordService : LifecycleService() {
     private var running = false
     private var stopping = false
     private var audio = false
-    private var segmentMs = 30 * 60_000L
+    private var splitBytes = 1900L * 1024 * 1024
     private var segments = 0
     private var consecutiveErrors = 0
     private var legacyFile: File? = null
@@ -99,7 +100,7 @@ class RecordService : LifecycleService() {
     private fun startSession(rotation: Int) {
         createChannel()
         audio = Prefs.audio(this) && hasPerm(Manifest.permission.RECORD_AUDIO)
-        segmentMs = Prefs.segmentMillis(this)
+        splitBytes = Prefs.splitBytes(this)
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -147,14 +148,27 @@ class RecordService : LifecycleService() {
                     )
                     .setTargetVideoEncodingBitRate(Prefs.videoBitrate(this))
                     .build()
-                Log.i(TAG, "quality idx=$qualityIdx")
-
-                val vc = VideoCapture.withOutput(recorder)
-                vc.setTargetRotation(rotation)
+                Log.i(TAG, "quality idx=$qualityIdx bitrate=${Prefs.videoBitrate(this)}")
 
                 val selector = chooseCamera(p)
                 p.unbindAll()
-                p.bindToLifecycle(this, selector, vc)
+                // 빠른 움직임 우선: 어두워도 30fps 유지(셔터가 느려지며 생기는 잔상 줄임)
+                val vc = if (Prefs.fixedFps(this)) {
+                    try {
+                        val fixed = VideoCapture.Builder(recorder)
+                            .setTargetFrameRate(Range(30, 30))
+                            .setTargetRotation(rotation)
+                            .build()
+                        p.bindToLifecycle(this, selector, fixed)
+                        fixed
+                    } catch (e: Exception) {
+                        Log.w(TAG, "30fps 고정 미지원, 기본값으로", e)
+                        p.unbindAll()
+                        bindDefault(p, selector, recorder, rotation)
+                    }
+                } else {
+                    bindDefault(p, selector, recorder, rotation)
+                }
                 videoCapture = vc
                 startSegment()
             } catch (e: Exception) {
@@ -162,6 +176,14 @@ class RecordService : LifecycleService() {
                 fail("카메라를 열 수 없어요: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun bindDefault(
+        p: ProcessCameraProvider, selector: CameraSelector, recorder: Recorder, rotation: Int
+    ): VideoCapture<Recorder> {
+        val vc = VideoCapture.Builder(recorder).setTargetRotation(rotation).build()
+        p.bindToLifecycle(this, selector, vc)
+        return vc
     }
 
     private fun chooseCamera(p: ProcessCameraProvider): CameraSelector {
@@ -244,7 +266,7 @@ class RecordService : LifecycleService() {
         val vc = videoCapture ?: return
 
         // 다음 파일 쓸 자리 확보 (오래된 영상 삭제)
-        val need = Prefs.estimatedSegmentBytes(this)
+        val need = splitBytes
         val deleted = StorageCleaner.makeRoom(this, Prefs.maxBytes(this), need)
         if (deleted > 0) Log.i(TAG, "deleted $deleted old files")
         if (StorageCleaner.freeBytes() < MIN_FREE_BYTES) {
@@ -264,7 +286,7 @@ class RecordService : LifecycleService() {
             val opts = MediaStoreOutputOptions.Builder(
                 contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI
             ).setContentValues(cv)
-                .setDurationLimitMillis(segmentMs)
+                .setFileSizeLimit(splitBytes)
                 .build()
             vc.output.prepareRecording(this, opts)
         } else {
@@ -272,7 +294,7 @@ class RecordService : LifecycleService() {
             val f = File(dir, "$name.mp4")
             legacyFile = f
             val opts = FileOutputOptions.Builder(f)
-                .setDurationLimitMillis(segmentMs)
+                .setFileSizeLimit(splitBytes)
                 .build()
             vc.output.prepareRecording(this, opts)
         }
@@ -376,8 +398,8 @@ class RecordService : LifecycleService() {
     }
 
     private fun updateNotification() {
-        val min = Prefs.SEGMENT_LABELS[Prefs.segmentIdx(this)]
-        val text = "${segments}번째 파일 녹화 중 · $min마다 저장"
+        val size = Prefs.SPLIT_LABELS[Prefs.splitIdx(this)].substringBefore(" ")
+        val text = "${segments}번째 파일 녹화 중 · ${size}마다 저장"
         try {
             getSystemService(NotificationManager::class.java).notify(NOTI_ID, buildNotification(text))
         } catch (_: Exception) {
