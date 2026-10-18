@@ -1,4 +1,4 @@
-# Claude CCTV
+# Claude TV
 
 안 쓰는 안드로이드 폰을 녹화 전용 CCTV로 쓰는 앱.
 
