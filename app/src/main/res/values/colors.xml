@@ -1,0 +1,10 @@
+<resources>
+    <color name="bg">#0F1115</color>
+    <color name="card">#1A1D24</color>
+    <color name="text">#ECEEF2</color>
+    <color name="sub">#9AA1AE</color>
+    <color name="rec">#E5484D</color>
+    <color name="ok">#3DD68C</color>
+    <color name="accent">#4C8DFF</color>
+    <color name="launcher_bg">#1A1D24</color>
+</resources>
