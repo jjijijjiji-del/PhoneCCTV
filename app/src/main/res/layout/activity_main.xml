@@ -134,6 +134,9 @@
             <TextView style="@style/Label" android:text="화질" />
             <Spinner android:id="@+id/spQuality" style="@style/Field" />
 
+            <TextView style="@style/Label" android:text="코덱" />
+            <Spinner android:id="@+id/spCodec" style="@style/Field" />
+
             <TextView style="@style/Label" android:text="카메라" />
             <Spinner android:id="@+id/spCamera" style="@style/Field" />
 

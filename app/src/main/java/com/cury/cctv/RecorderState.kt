@@ -12,6 +12,7 @@ object RecorderState {
         val fileName: String = "",
         val segments: Int = 0,
         val message: String = "",
+        val codec: String = "",
     )
 
     val status = MutableStateFlow(Status())

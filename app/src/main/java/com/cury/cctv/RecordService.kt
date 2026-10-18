@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.MediaFormat
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Handler
@@ -28,6 +29,7 @@ import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.PendingRecording
 import androidx.camera.video.Quality
 import androidx.camera.video.QualitySelector
+import androidx.camera.video.ExperimentalMimeTypeApi
 import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
@@ -138,37 +140,20 @@ class RecordService : LifecycleService() {
                 val p = future.get()
                 provider = p
 
-                val qualityIdx = Prefs.qualityIdx(this)
-                val recorder = Recorder.Builder()
-                    .setQualitySelector(
-                        QualitySelector.from(
-                            Prefs.quality(this),
-                            FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
-                        )
-                    )
-                    .setTargetVideoEncodingBitRate(Prefs.videoBitrate(this))
-                    .build()
-                Log.i(TAG, "quality idx=$qualityIdx bitrate=${Prefs.videoBitrate(this)}")
-
                 val selector = chooseCamera(p)
-                p.unbindAll()
-                // 빠른 움직임 우선: 어두워도 30fps 유지(셔터가 느려지며 생기는 잔상 줄임)
-                val vc = if (Prefs.fixedFps(this)) {
-                    try {
-                        val fixed = VideoCapture.Builder(recorder)
-                            .setTargetFrameRate(Range(30, 30))
-                            .setTargetRotation(rotation)
-                            .build()
-                        p.bindToLifecycle(this, selector, fixed)
-                        fixed
-                    } catch (e: Exception) {
-                        Log.w(TAG, "30fps 고정 미지원, 기본값으로", e)
-                        p.unbindAll()
-                        bindDefault(p, selector, recorder, rotation)
-                    }
-                } else {
-                    bindDefault(p, selector, recorder, rotation)
+                var hevc = Prefs.wantHevc(this) && deviceSupportsHevc()
+                val vc = try {
+                    bindRecorder(p, selector, buildRecorder(hevc), rotation)
+                } catch (e: Exception) {
+                    if (!hevc) throw e
+                    // 이 폰에서 HEVC 1080p가 안 되면 H.264로 자동 전환
+                    Log.w(TAG, "HEVC 실패, H.264로 전환", e)
+                    hevc = false
+                    p.unbindAll()
+                    bindRecorder(p, selector, buildRecorder(false), rotation)
                 }
+                RecorderState.update { it.copy(codec = if (hevc) "HEVC" else "H.264") }
+                Log.i(TAG, "hevc=$hevc bitrate=${Prefs.videoBitrate(this, hevc)}")
                 videoCapture = vc
                 startSegment()
             } catch (e: Exception) {
@@ -176,6 +161,47 @@ class RecordService : LifecycleService() {
                 fail("카메라를 열 수 없어요: ${e.message}")
             }
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    @androidx.annotation.OptIn(markerClass = [ExperimentalMimeTypeApi::class])
+    private fun deviceSupportsHevc(): Boolean = try {
+        Recorder.getSupportedVideoMimeTypes().contains(MediaFormat.MIMETYPE_VIDEO_HEVC)
+    } catch (e: Throwable) {
+        false
+    }
+
+    private fun buildRecorder(hevc: Boolean): Recorder {
+        val b = Recorder.Builder()
+            .setQualitySelector(
+                QualitySelector.from(
+                    Prefs.quality(this),
+                    FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
+                )
+            )
+            .setTargetVideoEncodingBitRate(Prefs.videoBitrate(this, hevc))
+        if (hevc) b.setVideoMimeType(MediaFormat.MIMETYPE_VIDEO_HEVC)
+        return b.build()
+    }
+
+    /** 빠른 움직임 우선이면 30fps 고정을 먼저 시도하고, 안 되면 기본값으로 */
+    private fun bindRecorder(
+        p: ProcessCameraProvider, selector: CameraSelector, recorder: Recorder, rotation: Int
+    ): VideoCapture<Recorder> {
+        p.unbindAll()
+        if (Prefs.fixedFps(this)) {
+            try {
+                val fixed = VideoCapture.Builder(recorder)
+                    .setTargetFrameRate(Range(30, 30))
+                    .setTargetRotation(rotation)
+                    .build()
+                p.bindToLifecycle(this, selector, fixed)
+                return fixed
+            } catch (e: Exception) {
+                Log.w(TAG, "30fps 고정 미지원, 기본값으로", e)
+                p.unbindAll()
+            }
+        }
+        return bindDefault(p, selector, recorder, rotation)
     }
 
     private fun bindDefault(

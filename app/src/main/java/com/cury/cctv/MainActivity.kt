@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsBox: View
     private lateinit var spSegment: Spinner
     private lateinit var spQuality: Spinner
+    private lateinit var spCodec: Spinner
     private lateinit var spCamera: Spinner
     private lateinit var spMax: Spinner
     private lateinit var swAudio: MaterialSwitch
@@ -95,6 +96,7 @@ class MainActivity : AppCompatActivity() {
         settingsBox = findViewById(R.id.settingsBox)
         spSegment = findViewById(R.id.spSegment)
         spQuality = findViewById(R.id.spQuality)
+        spCodec = findViewById(R.id.spCodec)
         spCamera = findViewById(R.id.spCamera)
         spMax = findViewById(R.id.spMax)
         swAudio = findViewById(R.id.swAudio)
@@ -102,6 +104,7 @@ class MainActivity : AppCompatActivity() {
 
         setupSpinner(spSegment, Prefs.SPLIT_LABELS, Prefs.splitIdx(this)) { Prefs.setSplitIdx(this, it) }
         setupSpinner(spQuality, Prefs.QUALITY_LABELS, Prefs.qualityIdx(this)) { Prefs.setQualityIdx(this, it) }
+        setupSpinner(spCodec, Prefs.CODEC_LABELS, Prefs.codecIdx(this)) { Prefs.setCodecIdx(this, it) }
         setupSpinner(spCamera, Prefs.CAMERA_LABELS, Prefs.cameraIdx(this)) {
             val changed = it != Prefs.cameraIdx(this)
             Prefs.setCameraIdx(this, it)
@@ -257,7 +260,7 @@ class MainActivity : AppCompatActivity() {
                 "총 녹화 시간 $total",
                 "현재 파일 ${s.segments}번째 · $seg / $segLen",
             )
-            if (s.fileName.isNotEmpty()) lines += s.fileName + ".mp4"
+            if (s.fileName.isNotEmpty()) lines += s.fileName + ".mp4" + if (s.codec.isNotEmpty()) " · ${s.codec}" else ""
             if (s.message.isNotEmpty()) lines += s.message
             detail.text = lines.joinToString("\n")
         } else {

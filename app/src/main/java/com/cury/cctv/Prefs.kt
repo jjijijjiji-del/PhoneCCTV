@@ -17,7 +17,14 @@ object Prefs {
         "1080p 절약 · 용량 절반",
         "720p · 용량 최소",
     )
-    private val QUALITY_MBPS = doubleArrayOf(12.0, 6.0, 4.0)
+    // 같은 체감 화질 기준: HEVC는 H.264의 약 2/3 비트레이트면 충분
+    private val QUALITY_MBPS_H264 = doubleArrayOf(12.0, 6.0, 4.0)
+    private val QUALITY_MBPS_HEVC = doubleArrayOf(8.0, 4.0, 2.5)
+
+    val CODEC_LABELS = arrayOf(
+        "HEVC (H.265) · 용량 절약 (추천)",
+        "H.264 · 윈도우 PC 호환성 좋음",
+    )
 
     val CAMERA_LABELS = arrayOf("후면 카메라", "전면 카메라")
 
@@ -32,6 +39,9 @@ object Prefs {
     fun maxIdx(c: Context) = sp(c).getInt("max2", 1)                 // 20GB
     fun audio(c: Context) = sp(c).getBoolean("audio", true)
     fun fixedFps(c: Context) = sp(c).getBoolean("fixedFps", true)
+    fun codecIdx(c: Context) = sp(c).getInt("codec", 0)              // HEVC
+    fun setCodecIdx(c: Context, v: Int) = sp(c).edit().putInt("codec", v).apply()
+    fun wantHevc(c: Context) = codecIdx(c) == 0
 
     fun setSplitIdx(c: Context, v: Int) = sp(c).edit().putInt("split", v).apply()
     fun setQualityIdx(c: Context, v: Int) = sp(c).edit().putInt("quality2", v).apply()
@@ -48,7 +58,8 @@ object Prefs {
 
     fun quality(c: Context): Quality = if (qualityIdx(c) == 2) Quality.HD else Quality.FHD
 
-    fun videoBitrate(c: Context): Int = (QUALITY_MBPS[qualityIdx(c)] * 1_000_000).toInt()
+    fun videoBitrate(c: Context, hevc: Boolean = wantHevc(c)): Int =
+        ((if (hevc) QUALITY_MBPS_HEVC else QUALITY_MBPS_H264)[qualityIdx(c)] * 1_000_000).toInt()
 
     private fun totalBitsPerSec(c: Context): Double =
         videoBitrate(c) + if (audio(c)) 128_000.0 else 0.0

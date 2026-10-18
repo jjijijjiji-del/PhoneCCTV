@@ -47,7 +47,8 @@ android {
 }
 
 dependencies {
-    val camerax = "1.4.1"
+    // HEVC 코덱 선택(setVideoMimeType)은 1.7 알파부터 지원
+    val camerax = "1.7.0-alpha03"
     implementation("androidx.camera:camera-core:$camerax")
     implementation("androidx.camera:camera-camera2:$camerax")
     implementation("androidx.camera:camera-lifecycle:$camerax")
