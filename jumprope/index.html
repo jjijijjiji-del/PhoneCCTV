@@ -84,6 +84,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .switch{width:22px;height:22px;accent-color:var(--accent)}
 .empty{color:var(--muted);text-align:center;padding:20px 0}
+.profiles{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+.pchip{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-start;gap:0;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:12px;padding:7px 14px;font:inherit;cursor:pointer;text-align:left}
+.pchip .pn{font-weight:700}
+.pchip .pt{font-size:.75rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.pchip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.pchip[aria-pressed="true"] .pt{color:var(--accent-ink);opacity:.85}
+.pchip:disabled{opacity:.4;cursor:not-allowed}
+label.field input[type=text]{font:inherit;font-size:1.1rem;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
 .err{background:color-mix(in srgb,var(--hot) 14%,var(--surface));border:1px solid var(--hot);border-radius:12px;padding:12px;font-size:.9rem}
 </style>
 </head>
@@ -97,6 +105,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
       <button role="tab" aria-selected="false" data-tab="set">설정</button>
     </div>
   </header>
+
+  <nav class="profiles" id="profileBar" aria-label="프로필"></nav>
 
   <!-- 운동 -->
   <section class="panel" id="tab-run">
@@ -149,10 +159,21 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   <!-- 설정 -->
   <section class="panel" id="tab-set" hidden>
     <div class="card" style="display:flex;flex-direction:column;gap:18px">
+      <h2 style="margin:0" id="profTitle">프로필</h2>
+      <label class="field">이름
+        <input type="text" id="pname" maxlength="10" autocomplete="off">
+      </label>
       <label class="field">몸무게 (kg)
         <input type="number" id="weight" min="20" max="200" step="0.5" inputmode="decimal">
         <small>칼로리 계산에만 쓰여요. 이 폰에만 저장돼요.</small>
       </label>
+      <div class="row">
+        <button class="btn ghost" id="addProf" style="flex:1">+ 프로필 추가</button>
+        <button class="btn ghost" id="delProf" style="flex:1">이 프로필 삭제</button>
+      </div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;gap:18px">
+      <h2 style="margin:0">공통 설정</h2>
       <label class="field">음성 알림 간격: <span id="everyLbl"></span>개마다
         <input type="range" id="every" min="10" max="200" step="10">
       </label>
@@ -172,10 +193,24 @@ const LS = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const settings = Object.assign({ weight: 65, every: 50, sens: 3, beep: false }, LS.get('jr_settings', {}));
-let history = LS.get('jr_history', {});   // { 'YYYY-MM-DD': { sets:[{t,count,sec,kcal}] } }
+const settings = Object.assign({ every: 50, sens: 3, beep: false }, LS.get('jr_settings', {}));
 const saveSettings = () => LS.set('jr_settings', settings);
-const saveHistory = () => LS.set('jr_history', history);
+
+// 프로필: [{id, name, weight}] / 기록은 프로필별로 따로 저장
+let profiles = LS.get('jr_profiles', null);
+if (!profiles){
+  // 이전 버전 기록이 있으면 첫 프로필로 옮김
+  profiles = [{ id: 'p1', name: '나', weight: settings.weight || 65 }, { id: 'p2', name: '가족', weight: 55 }];
+  const old = LS.get('jr_history', null);
+  if (old) LS.set('jr_history_p1', old);
+  LS.set('jr_profiles', profiles);
+}
+let activeId = LS.get('jr_active', profiles[0].id);
+if (!profiles.some(p => p.id === activeId)) activeId = profiles[0].id;
+const prof = () => profiles.find(p => p.id === activeId);
+const saveProfiles = () => { LS.set('jr_profiles', profiles); LS.set('jr_active', activeId); };
+let history = LS.get('jr_history_' + activeId, {});   // { 'YYYY-MM-DD': { sets:[{t,count,sec,kcal}] } }
+const saveHistory = () => LS.set('jr_history_' + activeId, history);
 
 const $ = id => document.getElementById(id);
 const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -184,7 +219,7 @@ const fmtTime = s => { s = Math.round(s); const m = Math.floor(s/60); return m >
 // ---------- 칼로리 ----------
 const RICE = 300;
 function metFor(count, sec){ if (sec <= 0) return 0; const spm = count / sec * 60; return spm < 100 ? 8.8 : spm <= 120 ? 11.8 : 12.3; }
-function kcalFor(count, sec){ return metFor(count, sec) * settings.weight * (sec / 3600); }
+function kcalFor(count, sec){ return metFor(count, sec) * prof().weight * (sec / 3600); }
 const FOODS = [ ['바나나 1개', 90], ['콜라 1캔', 150], ['카페라떼 1잔', 200], ['라면 1봉', 500], ['치킨 반 마리', 1000] ];
 function foodLine(kcal){
   if (kcal < 5) return '';
@@ -232,12 +267,48 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
 }));
 
 // ---------- 설정 UI ----------
-$('weight').value = settings.weight;
+// ---------- 프로필 ----------
+let delArmed = false;
+function renderProfiles(){
+  $('profileBar').innerHTML = profiles.map(p => {
+    const today = Object.values(LS.get('jr_history_' + p.id, {})[dayKey()]?.sets || []).reduce((a, s) => a + s.count, 0);
+    return `<button class="pchip" data-id="${p.id}" aria-pressed="${p.id === activeId}" ${running && p.id !== activeId ? 'disabled' : ''}><span class="pn"></span><span class="pt">오늘 ${today.toLocaleString()}개</span></button>`;
+  }).join('');
+  $('profileBar').querySelectorAll('.pn').forEach((el, i) => el.textContent = profiles[i].name);   // 이름은 textContent로
+  $('profTitle').textContent = `${prof().name} 프로필`;
+  $('pname').value = prof().name;
+  $('weight').value = prof().weight;
+  $('delProf').disabled = profiles.length <= 1;
+  delArmed = false; $('delProf').textContent = '이 프로필 삭제';
+}
+function switchProfile(id){
+  if (running || id === activeId) return;
+  activeId = id; saveProfiles();
+  history = LS.get('jr_history_' + activeId, {});
+  session.total = 0; session.sets = []; session.cur = null;
+  $('count').textContent = 0; renderSession(); renderProfiles();
+  if (!$('tab-log').hidden) renderLog();
+}
+$('profileBar').addEventListener('click', e => { const b = e.target.closest('.pchip'); if (b) switchProfile(b.dataset.id); });
+$('pname').addEventListener('change', e => { const v = e.target.value.trim(); if (v){ prof().name = v; saveProfiles(); } renderProfiles(); });
+$('addProf').addEventListener('click', () => {
+  if (running) return;
+  const id = 'p' + Date.now().toString(36);
+  profiles.push({ id, name: `사람${profiles.length + 1}`, weight: 60 }); saveProfiles();
+  switchProfile(id); $('pname').focus(); $('pname').select();
+});
+$('delProf').addEventListener('click', () => {
+  if (running || profiles.length <= 1) return;
+  if (!delArmed){ delArmed = true; $('delProf').textContent = '기록도 지워져요. 한 번 더'; setTimeout(() => { if (delArmed){ delArmed = false; $('delProf').textContent = '이 프로필 삭제'; } }, 3000); return; }
+  try{ localStorage.removeItem('jr_history_' + activeId); }catch{}
+  profiles = profiles.filter(p => p.id !== activeId);
+  activeId = ''; switchProfile(profiles[0].id);
+});
 $('every').value = settings.every; $('everyLbl').textContent = settings.every;
 const SENS_TXT = ['낮음','조금 낮음','보통','조금 높음','높음'];
 $('sens').value = settings.sens; $('sensLbl').textContent = SENS_TXT[settings.sens-1];
 $('beep').checked = settings.beep;
-$('weight').addEventListener('change', e => { const v = parseFloat(e.target.value); if (v >= 20 && v <= 200){ settings.weight = v; saveSettings(); } });
+$('weight').addEventListener('change', e => { const v = parseFloat(e.target.value); if (v >= 20 && v <= 200){ prof().weight = v; saveProfiles(); } else e.target.value = prof().weight; });
 $('every').addEventListener('input', e => { settings.every = +e.target.value; $('everyLbl').textContent = settings.every; saveSettings(); });
 $('sens').addEventListener('input', e => { settings.sens = +e.target.value; $('sensLbl').textContent = SENS_TXT[settings.sens-1]; saveSettings(); });
 $('beep').addEventListener('change', e => { settings.beep = e.target.checked; saveSettings(); });
@@ -326,7 +397,7 @@ function endSet(){
   session.sets.push(rec);
   const k = dayKey(new Date(s.t));
   (history[k] ||= { sets: [] }).sets.push(rec); saveHistory();
-  renderSession();
+  renderSession(); renderProfiles();
 }
 function renderSession(){
   const sets = [...session.sets]; let liveSec = 0, liveCount = 0;
@@ -399,7 +470,7 @@ async function start(){
     try{ wakeLock = await navigator.wakeLock?.request('screen'); }catch{}
     session.total = 0; session.sets = []; session.cur = null; resetDetector();
     $('count').textContent = 0;
-    running = true; renderSession(); setStatus('준비 완료','ok');
+    running = true; renderSession(); renderProfiles(); setStatus('준비 완료','ok');
     $('startBtn').textContent = '정지'; $('startBtn').className = 'btn stop';
     loop();
   }catch(e){
@@ -419,7 +490,8 @@ function stop(){
   try{ wakeLock?.release(); }catch{} wakeLock = null;
   $('ph').hidden = false; pctx.clearRect(0,0,poseCv.width,poseCv.height); sctx.clearRect(0,0,spark.width,spark.height);
   setStatus(session.total ? `완료 · ${session.total}개 저장됨` : '대기 중', session.total ? 'ok' : '');
-  if (session.total) speak(`운동 끝. 총 ${session.total}개`);
+  if (session.total) speak(`${prof().name}, 운동 끝. 총 ${session.total}개`);
+  renderProfiles();
   $('startBtn').textContent = '시작'; $('startBtn').className = 'btn primary';
   renderSession(); $('setinfo').textContent = session.total ? '기록 탭에서 확인할 수 있어요' : '시작을 누르면 카메라가 켜져요';
 }
@@ -460,7 +532,7 @@ $('days').addEventListener('click', e => {
   if (!b.classList.contains('armed')){ b.classList.add('armed'); b.textContent = '한 번 더 누르면 삭제돼요'; setTimeout(()=>{ b.classList.remove('armed'); b.textContent='이 날 기록 삭제'; }, 3000); return; }
   delete history[b.dataset.k]; saveHistory(); renderLog();
 });
-renderSession();
+renderSession(); renderProfiles();
 </script>
 </body>
 </html>
