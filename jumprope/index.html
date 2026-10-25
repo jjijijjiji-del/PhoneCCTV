@@ -116,7 +116,7 @@ label.field input[type=text]{font:inherit;font-size:1.1rem;padding:10px 12px;bor
       <canvas class="spark" id="spark"></canvas>
       <div class="placeholder" id="ph">
         <svg viewBox="0 0 72 72" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="36" cy="14" r="6"/><path d="M36 21v20M36 41l-8 14M36 41l8 14M36 27l-10 8M36 27l10 8"/><path d="M14 60c0-28 44-28 44 0" stroke-dasharray="3 5"/></svg>
-        <div>폰을 2~3m 앞에 세워두고<br>머리부터 발끝까지 화면에 들어오게 서주세요</div>
+        <div>폰을 2~3m 앞에 세워두고<br>허리 높이에 두고 상체가 화면에 들어오게 서주세요</div>
       </div>
       <div class="hud">
         <div class="status" id="status">대기 중</div>
@@ -313,7 +313,7 @@ $('every').addEventListener('input', e => { settings.every = +e.target.value; $(
 $('sens').addEventListener('input', e => { settings.sens = +e.target.value; $('sensLbl').textContent = SENS_TXT[settings.sens-1]; saveSettings(); });
 $('beep').addEventListener('change', e => { settings.beep = e.target.checked; saveSettings(); });
 // 민감도 → 몸 길이 대비 필요한 상하 이동량
-const thrRatio = () => [0.045, 0.035, 0.026, 0.019, 0.013][settings.sens - 1];
+const thrRatio = () => [0.13, 0.10, 0.075, 0.055, 0.04][settings.sens - 1];   // 몸통 길이 대비
 
 // ---------- 카메라 / 포즈 ----------
 const video = $('video'), poseCv = $('pose'), pctx = poseCv.getContext('2d');
@@ -325,7 +325,7 @@ async function loadModel(){
   setStatus('인식 모델 불러오는 중…');
   const { PoseLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
   const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-  const opts = d => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task', delegate:d }, runningMode:'VIDEO', numPoses:1, minPoseDetectionConfidence:.5, minTrackingConfidence:.5 });
+  const opts = d => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task', delegate:d }, runningMode:'VIDEO', numPoses:1, minPoseDetectionConfidence:.5, minTrackingConfidence:.5 });
   try { landmarker = await PoseLandmarker.createFromOptions(fs, opts('GPU')); }
   catch { landmarker = await PoseLandmarker.createFromOptions(fs, opts('CPU')); }
   return landmarker;
@@ -339,39 +339,43 @@ async function openCamera(){
 }
 
 // ---------- 점프 판정 ----------
-const REST_MS = 3000, MIN_GAP_MS = 220;
-const det = { smooth:null, state:'down', ext:null, lastCount:0, trace:[] };
+// 몸통 중심(양 어깨+양 골반) 높이를 추적. 발이 안 보여도 되고, 카메라 각도가 달라도
+// 몸통 길이 대비 비율 + 최근 점프 폭에 맞춰 기준이 자동으로 조정됨
+const REST_MS = 3000, MIN_GAP_MS = 220, LOST_GRACE_MS = 700;
+const det = { smooth:null, state:'down', ext:null, bottom:null, amp:0, lastCount:0, trace:[], lastSeen:0 };
 const session = { total:0, sets:[], cur:null };
 
-function resetDetector(){ det.smooth = null; det.state = 'down'; det.ext = null; det.trace = []; }
+function resetDetector(){ Object.assign(det, { smooth:null, state:'down', ext:null, bottom:null, amp:0, trace:[] }); }
 
 function processPose(lm, now){
-  const v = i => lm[i] && (lm[i].visibility ?? 1) > 0.5;
+  const v = i => lm[i] && (lm[i].visibility ?? 1) > 0.3;
   if (!(v(23) && v(24) && v(11) && v(12))) return 'nobody';
-  const hipY = (lm[23].y + lm[24].y) / 2;
-  const shY = (lm[11].y + lm[12].y) / 2;
-  let scale;
-  if (v(27) && v(28)) scale = (lm[27].y + lm[28].y) / 2 - shY;
-  else scale = (hipY - shY) * 2.6;
-  if (scale <= 0.05) return 'nobody';
-  const full = v(27) && v(28);
-  det.smooth = det.smooth == null ? hipY : det.smooth * 0.45 + hipY * 0.55;
-  const y = det.smooth, thr = thrRatio() * scale;
+  const shX = (lm[11].x + lm[12].x) / 2, shY = (lm[11].y + lm[12].y) / 2;
+  const hpX = (lm[23].x + lm[24].x) / 2, hpY = (lm[23].y + lm[24].y) / 2;
+  const torso = Math.hypot(hpX - shX, hpY - shY);
+  if (torso < 0.04) return 'nobody';
+  const cy = (shY + hpY) / 2;
+  det.smooth = det.smooth == null ? cy : det.smooth * 0.4 + cy * 0.6;
+  const y = det.smooth;
+  const floor = thrRatio() * torso;
+  const thr = Math.max(floor, det.amp * 0.35);
   det.trace.push({ y, thr }); if (det.trace.length > 120) det.trace.shift();
 
-  // 히스테리시스: 내려간 최저점(=y 최대) → 올라감 → 다시 thr 이상 내려오면 1회
+  // 히스테리시스: 바닥(y 최대) → thr 이상 올라감 → 꼭대기(y 최소) → thr 이상 내려오면 1회
   if (det.ext == null) det.ext = y;
-  if (det.state === 'down'){            // 바닥 찾는 중 (y 최대 추적)
+  if (det.state === 'down'){
     if (y > det.ext) det.ext = y;
-    else if (det.ext - y > thr){ det.state = 'up'; det.ext = y; }
-  } else {                              // 공중 최고점 찾는 중 (y 최소 추적)
+    else if (det.ext - y > thr){ det.bottom = det.ext; det.state = 'up'; det.ext = y; }
+  } else {
     if (y < det.ext) det.ext = y;
     else if (y - det.ext > thr){
+      const a = (det.bottom ?? y) - det.ext;
+      det.amp = det.amp ? det.amp * 0.7 + a * 0.3 : a;
       det.state = 'down'; det.ext = y;
       if (now - det.lastCount > MIN_GAP_MS){ det.lastCount = now; onJump(now); }
     }
   }
-  return full ? 'ok' : 'partial';
+  return 'ok';
 }
 
 function onJump(now){
@@ -447,14 +451,17 @@ function loop(){
     lastVideoTime = video.currentTime;
     const res = landmarker.detectForVideo(video, now);
     const lm = res.landmarks && res.landmarks[0];
-    drawPose(lm);
     const st = lm ? processPose(lm, now) : 'nobody';
-    if (st === 'nobody'){ setStatus('사람이 안 보여요', ''); resetDetector(); }
-    else if (session.cur) setStatus(st === 'partial' ? '측정 중 · 발이 잘려요' : '측정 중', 'ok');
-    else setStatus(st === 'partial' ? '발까지 보이게 뒤로 가주세요' : (session.sets.length ? '휴식 중' : '준비 완료'), session.sets.length ? 'rest' : 'ok');
+    if (st === 'ok'){ det.lastSeen = now; det.lastLm = lm; drawPose(lm); }
+    else if (now - det.lastSeen < LOST_GRACE_MS){ drawPose(det.lastLm); }   // 잠깐 놓친 건 무시 (깜빡임 방지)
+    else { drawPose(null); resetDetector(); setStatus('사람이 안 보여요', ''); }
+    if (st === 'ok' || now - det.lastSeen < LOST_GRACE_MS){
+      if (session.cur) setStatus('측정 중', 'ok');
+      else setStatus(session.sets.length ? '휴식 중' : '준비 완료', session.sets.length ? 'rest' : 'ok');
+    }
     drawSpark();
   }
-  if (session.cur && now - session.cur.last > REST_MS){ endSet(); speak(`휴식. ${session.sets.length ? session.sets[session.sets.length-1].count + '개' : ''}`); }
+  if (session.cur && now - session.cur.last > REST_MS){ det.amp = 0; endSet(); speak(`휴식. ${session.sets.length ? session.sets[session.sets.length-1].count + '개' : ''}`); }
   rafId = requestAnimationFrame(loop);
 }
 
