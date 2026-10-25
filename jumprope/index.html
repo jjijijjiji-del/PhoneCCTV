@@ -51,6 +51,7 @@ canvas.spark{position:absolute;left:0;right:0;bottom:0;height:56px;top:auto;opac
 .btn.stop{background:var(--hot);color:#fff}
 .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--line);flex:0 0 auto;padding:15px 16px}
 .btn:disabled{opacity:.5}
+#torchBtn[aria-pressed="true"]{background:#FFD54A;color:#16213A;border-color:#FFD54A}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
 .stats b{display:block;font-family:var(--font-num);font-weight:400;font-size:1.6rem;font-variant-numeric:tabular-nums}
@@ -128,6 +129,7 @@ label.field input[type=text]{font:inherit;font-size:1.1rem;padding:10px 12px;bor
     </div>
     <div class="controls">
       <button class="btn primary" id="startBtn">시작</button>
+      <button class="btn ghost" id="torchBtn" title="플래시" aria-label="플래시 켜기" aria-pressed="false" hidden>💡</button>
       <button class="btn ghost" id="flipBtn" title="카메라 전환" aria-label="카메라 전환">⇄</button>
     </div>
     <div id="errBox" class="err" hidden></div>
@@ -325,7 +327,7 @@ async function loadModel(){
   setStatus('인식 모델 불러오는 중…');
   const { PoseLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
   const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-  const opts = d => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task', delegate:d }, runningMode:'VIDEO', numPoses:3, minPoseDetectionConfidence:.5, minTrackingConfidence:.5 });
+  const opts = d => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task', delegate:d }, runningMode:'VIDEO', numPoses:3, minPoseDetectionConfidence:.3, minPosePresenceConfidence:.3, minTrackingConfidence:.3 });
   try { landmarker = await PoseLandmarker.createFromOptions(fs, opts('GPU')); }
   catch { landmarker = await PoseLandmarker.createFromOptions(fs, opts('CPU')); }
   return landmarker;
@@ -336,7 +338,45 @@ async function openCamera(){
   video.srcObject = stream; await video.play();
   $('stage').classList.toggle('mirror', facing === 'user');
   $('ph').hidden = true;
+  updateTorchBtn();
 }
+
+// ---------- 어두운 곳 보정 ----------
+// 프레임 평균 밝기를 재서 어두우면 밝기·대비를 올린 화면을 인식 모델에 넣음
+const meterCv = document.createElement('canvas'); meterCv.width = 32; meterCv.height = 24;
+const meterCtx = meterCv.getContext('2d', { willReadFrequently: true });
+const procCv = document.createElement('canvas'), procCtx = procCv.getContext('2d');
+let gain = 1, frameNo = 0, torchOn = false;
+function measureLuma(){
+  meterCtx.drawImage(video, 0, 0, 32, 24);
+  const d = meterCtx.getImageData(0, 0, 32, 24).data; let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += d[i] * .299 + d[i+1] * .587 + d[i+2] * .114;
+  return sum / (d.length / 4) / 255;
+}
+function enhanceFrame(){
+  if (frameNo++ % 10 === 0){
+    const l = Math.max(measureLuma(), 0.02);
+    const target = Math.min(3, Math.max(1, 0.42 / l));
+    gain = gain * 0.7 + target * 0.3;
+    const dark = gain > 1.15;
+    video.style.filter = dark ? `brightness(${gain.toFixed(2)}) contrast(1.15)` : '';
+    det.dark = dark;
+  }
+  if (!det.dark) return video;
+  if (procCv.width !== video.videoWidth){ procCv.width = video.videoWidth; procCv.height = video.videoHeight; }
+  procCtx.filter = `brightness(${gain.toFixed(2)}) contrast(1.2)`;
+  procCtx.drawImage(video, 0, 0);
+  return procCv;
+}
+function updateTorchBtn(){
+  const tr = stream?.getVideoTracks()[0];
+  let ok = false; try{ ok = !!tr?.getCapabilities?.().torch; }catch{}
+  $('torchBtn').hidden = !ok; torchOn = false; $('torchBtn').setAttribute('aria-pressed', 'false');
+}
+$('torchBtn').addEventListener('click', async () => {
+  const tr = stream?.getVideoTracks()[0]; if (!tr) return;
+  try{ await tr.applyConstraints({ advanced: [{ torch: !torchOn }] }); torchOn = !torchOn; $('torchBtn').setAttribute('aria-pressed', String(torchOn)); }catch{}
+});
 
 // ---------- 점프 판정 ----------
 // 몸통 중심(양 어깨+양 골반) 높이를 추적. 발이 안 보여도 되고, 카메라 각도가 달라도
@@ -470,15 +510,15 @@ function loop(){
   const now = performance.now();
   if (video.readyState >= 2 && video.currentTime !== lastVideoTime){
     lastVideoTime = video.currentTime;
-    const res = landmarker.detectForVideo(video, now);
+    const res = landmarker.detectForVideo(enhanceFrame(), now);
     const t = pickTarget(res.landmarks || [], now);
     const st = t ? 'ok' : 'nobody';
     if (t){ processPose(t, now); det.lastSeen = now; det.lastLm = t.lm; drawPose(t.lm); }
     else if (now - det.lastSeen < LOST_GRACE_MS){ drawPose(det.lastLm); }   // 잠깐 놓친 건 무시 (깜빡임 방지)
     else { drawPose(null); resetDetector(); setStatus('사람이 안 보여요', ''); }
     if (st === 'ok' || now - det.lastSeen < LOST_GRACE_MS){
-      if (session.cur) setStatus('측정 중', 'ok');
-      else setStatus(session.sets.length ? '휴식 중' : '준비 완료', session.sets.length ? 'rest' : 'ok');
+      if (session.cur) setStatus(det.dark ? '측정 중 · 어두움 보정' : '측정 중', 'ok');
+      else setStatus((session.sets.length ? '휴식 중' : '준비 완료') + (det.dark ? ' · 어두움 보정' : ''), session.sets.length ? 'rest' : 'ok');
     }
     drawSpark();
   }
@@ -512,6 +552,7 @@ async function start(){
   $('startBtn').disabled = false;
 }
 function stop(){
+  torchOn = false; $('torchBtn').hidden = true; video.style.filter = '';
   running = false; cancelAnimationFrame(rafId);
   endSet();
   if (stream) stream.getTracks().forEach(t => t.stop()); stream = null;
