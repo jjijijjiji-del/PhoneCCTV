@@ -325,7 +325,7 @@ async function loadModel(){
   setStatus('인식 모델 불러오는 중…');
   const { PoseLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
   const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
-  const opts = d => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task', delegate:d }, runningMode:'VIDEO', numPoses:1, minPoseDetectionConfidence:.5, minTrackingConfidence:.5 });
+  const opts = d => ({ baseOptions:{ modelAssetPath:'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task', delegate:d }, runningMode:'VIDEO', numPoses:3, minPoseDetectionConfidence:.5, minTrackingConfidence:.5 });
   try { landmarker = await PoseLandmarker.createFromOptions(fs, opts('GPU')); }
   catch { landmarker = await PoseLandmarker.createFromOptions(fs, opts('CPU')); }
   return landmarker;
@@ -341,41 +341,62 @@ async function openCamera(){
 // ---------- 점프 판정 ----------
 // 몸통 중심(양 어깨+양 골반) 높이를 추적. 발이 안 보여도 되고, 카메라 각도가 달라도
 // 몸통 길이 대비 비율 + 최근 점프 폭에 맞춰 기준이 자동으로 조정됨
-const REST_MS = 3000, MIN_GAP_MS = 220, LOST_GRACE_MS = 700;
-const det = { smooth:null, state:'down', ext:null, bottom:null, amp:0, lastCount:0, trace:[], lastSeen:0 };
+const REST_MS = 3000, MIN_GAP_MS = 220, LOST_GRACE_MS = 700, REACQUIRE_MS = 1500;
+const det = { smooth:null, state:'down', ext:null, bottom:null, amp:0, lastCount:0, trace:[], lastSeen:0, track:null, xUp:null };
 const session = { total:0, sets:[], cur:null };
 
-function resetDetector(){ Object.assign(det, { smooth:null, state:'down', ext:null, bottom:null, amp:0, trace:[] }); }
+function resetDetector(){ Object.assign(det, { smooth:null, state:'down', ext:null, bottom:null, amp:0, trace:[], xUp:null }); }
 
-function processPose(lm, now){
+function torsoInfo(lm){
   const v = i => lm[i] && (lm[i].visibility ?? 1) > 0.3;
-  if (!(v(23) && v(24) && v(11) && v(12))) return 'nobody';
+  if (!(v(23) && v(24) && v(11) && v(12))) return null;
   const shX = (lm[11].x + lm[12].x) / 2, shY = (lm[11].y + lm[12].y) / 2;
   const hpX = (lm[23].x + lm[24].x) / 2, hpY = (lm[23].y + lm[24].y) / 2;
   const torso = Math.hypot(hpX - shX, hpY - shY);
-  if (torso < 0.04) return 'nobody';
-  const cy = (shY + hpY) / 2;
-  det.smooth = det.smooth == null ? cy : det.smooth * 0.4 + cy * 0.6;
+  if (torso < 0.04) return null;
+  return { lm, x: (shX + hpX) / 2, y: (shY + hpY) / 2, torso };
+}
+
+// 여러 명이 잡혀도 처음 잡은 사람만 계속 따라감
+function pickTarget(list, now){
+  const cand = list.map(torsoInfo).filter(Boolean);
+  if (!cand.length) return null;
+  const tr = det.track;
+  if (!tr || now - det.lastSeen > REACQUIRE_MS){
+    // 새로 잡을 땐 화면에서 가장 크게(가까이) 보이는 사람
+    return cand.reduce((a, b) => b.torso > a.torso ? b : a);
+  }
+  const score = c => Math.hypot(c.x - tr.x, c.y - tr.y) / tr.torso + Math.abs(Math.log(c.torso / tr.torso)) * 3;
+  const best = cand.reduce((a, b) => score(b) < score(a) ? b : a);
+  return score(best) < 0.8 ? best : null;   // 갑자기 다른 위치·크기면 다른 사람으로 보고 무시
+}
+
+function processPose(t, now){
+  const tr = det.track;
+  det.track = tr ? { x: tr.x * 0.6 + t.x * 0.4, y: tr.y * 0.6 + t.y * 0.4, torso: tr.torso * 0.8 + t.torso * 0.2 } : { x: t.x, y: t.y, torso: t.torso };
+  det.smooth = det.smooth == null ? t.y : det.smooth * 0.4 + t.y * 0.6;
   const y = det.smooth;
-  const floor = thrRatio() * torso;
-  const thr = Math.max(floor, det.amp * 0.35);
+  const thr = Math.max(thrRatio() * t.torso, det.amp * 0.35);
   det.trace.push({ y, thr }); if (det.trace.length > 120) det.trace.shift();
 
   // 히스테리시스: 바닥(y 최대) → thr 이상 올라감 → 꼭대기(y 최소) → thr 이상 내려오면 1회
   if (det.ext == null) det.ext = y;
   if (det.state === 'down'){
     if (y > det.ext) det.ext = y;
-    else if (det.ext - y > thr){ det.bottom = det.ext; det.state = 'up'; det.ext = y; }
+    else if (det.ext - y > thr){ det.bottom = det.ext; det.state = 'up'; det.ext = y; det.xUp = t.x; }
   } else {
     if (y < det.ext) det.ext = y;
     else if (y - det.ext > thr){
       const a = (det.bottom ?? y) - det.ext;
-      det.amp = det.amp ? det.amp * 0.7 + a * 0.3 : a;
       det.state = 'down'; det.ext = y;
-      if (now - det.lastCount > MIN_GAP_MS){ det.lastCount = now; onJump(now); }
+      // 옆으로 걸어가는 움직임(제자리 점프가 아님)은 세지 않음
+      const sideways = det.xUp != null && Math.abs(t.x - det.xUp) > t.torso * 0.5;
+      if (!sideways){
+        det.amp = det.amp ? det.amp * 0.7 + a * 0.3 : a;
+        if (now - det.lastCount > MIN_GAP_MS){ det.lastCount = now; onJump(now); }
+      }
     }
   }
-  return 'ok';
 }
 
 function onJump(now){
@@ -450,9 +471,9 @@ function loop(){
   if (video.readyState >= 2 && video.currentTime !== lastVideoTime){
     lastVideoTime = video.currentTime;
     const res = landmarker.detectForVideo(video, now);
-    const lm = res.landmarks && res.landmarks[0];
-    const st = lm ? processPose(lm, now) : 'nobody';
-    if (st === 'ok'){ det.lastSeen = now; det.lastLm = lm; drawPose(lm); }
+    const t = pickTarget(res.landmarks || [], now);
+    const st = t ? 'ok' : 'nobody';
+    if (t){ processPose(t, now); det.lastSeen = now; det.lastLm = t.lm; drawPose(t.lm); }
     else if (now - det.lastSeen < LOST_GRACE_MS){ drawPose(det.lastLm); }   // 잠깐 놓친 건 무시 (깜빡임 방지)
     else { drawPose(null); resetDetector(); setStatus('사람이 안 보여요', ''); }
     if (st === 'ok' || now - det.lastSeen < LOST_GRACE_MS){
